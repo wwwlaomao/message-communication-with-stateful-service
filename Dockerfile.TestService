@@ -1,0 +1,9 @@
+FROM mcr.microsoft.com/dotnet/sdk:6.0.406-bullseye-slim as builder
+COPY ./ /app
+WORKDIR /app/TestService
+RUN dotnet publish -c Release -o /app/dist
+
+FROM mcr.microsoft.com/dotnet/aspnet:6.0.14-alpine3.17
+WORKDIR /app
+COPY --from=builder /app/dist .
+ENTRYPOINT ["dotnet", "TestService.dll"]

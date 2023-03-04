@@ -1,0 +1,36 @@
+version: "3.9"
+services:
+  test-service:
+    image: message-communication-with-statuful-service/test-service
+    build:
+      context: .
+      dockerfile: Dockerfile.TestService
+    environment:
+      RabbitMQ__Uri: "rabbitmq://rabbitmq/"
+    ports:
+      - "8000:80"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+  stateful-service:
+    image: message-communication-with-statuful-service/stateful-service
+    build:
+      context: .
+      dockerfile: Dockerfile.StatefulService
+    environment:
+      RabbitMQ__Uri: "rabbitmq://rabbitmq/"
+    ports:
+      - "9000-9001:80"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      mode: replicated
+      replicas: 2
+  rabbitmq:
+    image: "rabbitmq:3.11.10-alpine"
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
