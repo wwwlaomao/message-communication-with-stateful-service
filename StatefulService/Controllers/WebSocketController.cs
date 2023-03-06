@@ -30,8 +30,8 @@ public class WebSocketController : ControllerBase
             _logger.LogInformation("Connection request from {id}", id);
             using WebSocket webSocket = await HttpContext.WebSockets.AcceptWebSocketAsync();
             _externalPartyRegistry.Add(id);
-            await DummyProcessingAsync(webSocket, HttpContext.RequestAborted);
-            _logger.LogInformation("Connection is closed");
+            await DummyProcessingAsync(webSocket, cancellationToken);
+            _logger.LogInformation("Connection from {id} is closed", id);
             _externalPartyRegistry.Remove(id);
         }
         else
@@ -48,17 +48,34 @@ public class WebSocketController : ControllerBase
     {
         try
         {
+            using CancellationTokenSource cts = new();
+            byte[] buffer = new byte[1024 * 16];
+            Task receivingTask = Task.Run(async () =>
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    WebSocketReceiveResult result = await webSocket.ReceiveAsync(buffer, cancellationToken);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        await webSocket.CloseOutputAsync(
+                            WebSocketCloseStatus.NormalClosure, null, cancellationToken);
+                        cts.Cancel();
+                    }
+                    else
+                    {
+                        await webSocket.SendAsync(buffer, result.MessageType, result.EndOfMessage, cancellationToken);
+                    }
+                }
+            }, cancellationToken);
             while (webSocket.State == WebSocketState.Open)
             {
-                await Task.Delay(10000, cancellationToken);
                 await webSocket.SendAsync(
                     Encoding.UTF8.GetBytes(DateTimeOffset.Now.ToString()),
                     WebSocketMessageType.Text,
                     true,
                     cancellationToken);
+                await Task.Delay(10000, cts.Token);
             }
-            await webSocket.CloseAsync(
-                WebSocketCloseStatus.Empty, null, cancellationToken);
         }
         catch (Exception ex) when (ex is OperationCanceledException)
         {
