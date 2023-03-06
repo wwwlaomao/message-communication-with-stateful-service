@@ -48,38 +48,45 @@ public class WebSocketController : ControllerBase
     {
         try
         {
-            using CancellationTokenSource cts = new();
-            byte[] buffer = new byte[1024 * 16];
-            Task receivingTask = Task.Run(async () =>
+            using CancellationTokenSource cts =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            Task echoTask = Task.Run(async () =>
             {
-                while (!cancellationToken.IsCancellationRequested)
+                byte[] buffer = new byte[1024 * 16];
+                while (!cts.Token.IsCancellationRequested)
                 {
-                    WebSocketReceiveResult result = await webSocket.ReceiveAsync(buffer, cancellationToken);
+                    WebSocketReceiveResult result =
+                        await webSocket.ReceiveAsync(buffer, cts.Token);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         await webSocket.CloseOutputAsync(
-                            WebSocketCloseStatus.NormalClosure, null, cancellationToken);
+                            WebSocketCloseStatus.NormalClosure, null, cts.Token);
                         cts.Cancel();
                     }
                     else
                     {
-                        await webSocket.SendAsync(buffer, result.MessageType, result.EndOfMessage, cancellationToken);
+                        await webSocket.SendAsync(
+                            buffer, result.MessageType, result.EndOfMessage, cts.Token);
                     }
                 }
-            }, cancellationToken);
-            while (webSocket.State == WebSocketState.Open)
+            }, cts.Token);
+            Task tickTask = Task.Run(async () =>
             {
-                await webSocket.SendAsync(
-                    Encoding.UTF8.GetBytes(DateTimeOffset.Now.ToString()),
-                    WebSocketMessageType.Text,
-                    true,
-                    cancellationToken);
-                await Task.Delay(10000, cts.Token);
-            }
+                while (webSocket.State == WebSocketState.Open)
+                {
+                    await webSocket.SendAsync(
+                        Encoding.UTF8.GetBytes(DateTimeOffset.Now.ToString()),
+                        WebSocketMessageType.Text,
+                        true,
+                        cts.Token);
+                    await Task.Delay(10000, cts.Token);
+                }
+            }, cts.Token);
+            await Task.WhenAll(echoTask, tickTask);
         }
         catch (Exception ex) when (ex is OperationCanceledException)
         {
-            _logger.LogDebug("The client is cancelled.");
+            _logger.LogDebug("The client has cancelled.");
         }
     }
 }
